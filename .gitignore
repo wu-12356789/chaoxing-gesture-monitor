@@ -1,0 +1,10 @@
+.venv/
+work/*
+!work/.gitkeep
+__pycache__/
+data/
+.env
+.env.*
+!.env.example
+*.pem
+*.key

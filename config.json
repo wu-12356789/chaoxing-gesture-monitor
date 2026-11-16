@@ -1,0 +1,6 @@
+{
+  "gestures": ["1235789", "14789"],
+  "poll_seconds": 30,
+  "attempt_seconds": 3,
+  "course_ids": []
+}

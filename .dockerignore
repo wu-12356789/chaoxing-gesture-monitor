@@ -1,0 +1,10 @@
+.venv
+work
+data
+.git
+tests
+**/__pycache__
+.env
+.env.*
+*.pem
+*.key

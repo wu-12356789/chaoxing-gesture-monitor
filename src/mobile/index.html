@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f4f5f1">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>手势签到</title>
+  <link rel="stylesheet" href="/assets/style.css">
+  <script src="/assets/app.js" defer></script>
+</head>
+<body>
+  <main>
+    <header><span class="mark">签</span><div><h1>手势签到</h1><p>手机控制 · 服务器持续运行</p></div></header>
+    <p id="notice" role="status" aria-live="polite" hidden></p>
+    <section id="pairing" class="card">
+      <h2>连接你的面板</h2>
+      <p class="muted">输入部署时生成的访问密钥。</p>
+      <form id="pair-form"><label for="key">访问密钥</label><input id="key" type="password" autocomplete="off" required><button type="submit">连接</button></form>
+    </section>
+    <div id="dashboard" hidden>
+      <section class="card overview">
+        <div class="status-line"><span id="dot" class="dot"></span><strong id="status">正在连接</strong></div>
+        <p id="last-scan" class="muted">尚未检测</p>
+        <div class="actions"><button id="start" type="button">开始监测</button><button id="stop" type="button" class="secondary">停止</button></div>
+        <p class="hint">关闭网页或锁屏后，服务器继续监测。</p>
+      </section>
+      <section class="card" id="login-card">
+        <h2>登录学习通</h2>
+        <form id="login-form">
+          <label for="account">账号</label><input id="account" autocomplete="username" inputmode="tel" required>
+          <label for="password">密码</label><input id="password" type="password" autocomplete="current-password" required>
+          <button type="submit">登录</button>
+        </form>
+        <p class="hint">密码仅用于本次登录。服务器重启后需重新登录。</p>
+      </section>
+      <section class="card">
+        <h2>预设手势</h2><p class="muted">按列表顺序尝试，匹配成功后停止。</p>
+        <div id="presets" class="presets"></div>
+        <details><summary>编辑手势和检测间隔</summary>
+          <form id="config-form">
+            <label for="gestures">手势轨迹，每行一条</label><textarea id="gestures" rows="3" required></textarea>
+            <p class="hint">九宫格从上至下为 123 / 456 / 789。</p>
+            <label for="interval">检测间隔（秒）</label><input id="interval" type="number" min="1" max="86400" required>
+            <button type="submit" class="secondary">保存设置</button>
+          </form>
+        </details>
+      </section>
+      <section class="card"><h2>运行记录</h2><ol id="events"><li>开始监测后，记录会显示在这里。</li></ol></section>
+      <footer><span id="connection">已连接</span><button id="disconnect" type="button">断开面板连接</button></footer>
+    </div>
+  </main>
+</body>
+</html>

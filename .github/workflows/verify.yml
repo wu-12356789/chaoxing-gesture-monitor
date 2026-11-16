@@ -1,0 +1,58 @@
+name: Verify deployment
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Test protocol and web panel
+        run: python -m unittest discover -s tests -v
+      - name: Validate JavaScript and Compose
+        env:
+          SIGN_DOMAIN: sign.example.com
+        run: |
+          node --check src/mobile/app.js
+          docker compose config --quiet
+      - name: Build container
+        run: docker build -t gesture-monitor:test .
+      - name: Start container and check HTTP
+        run: |
+          docker run -d --name gesture-smoke -p 127.0.0.1:18765:8080 gesture-monitor:test
+          python - <<'PY'
+          import time
+          import requests
+          for attempt in range(30):
+              try:
+                  response = requests.get('http://127.0.0.1:18765/', timeout=2)
+                  if response.status_code == 200:
+                      break
+              except requests.ConnectionError:
+                  pass
+              time.sleep(1)
+          else:
+              raise SystemExit('Container did not become ready')
+          assert '手势签到' in response.text
+          denied = requests.get('http://127.0.0.1:18765/api/status', timeout=2)
+          assert denied.status_code == 401, denied.status_code
+          print('Container ready; unauthenticated API access rejected')
+          PY
+      - name: Show container logs
+        if: failure()
+        run: docker logs gesture-smoke 2>&1 || true
+      - name: Stop test container
+        if: always()
+        run: docker rm -f gesture-smoke 2>/dev/null || true
