@@ -9,12 +9,12 @@ import logging
 import os
 from pathlib import Path
 import secrets
+import socket
 import threading
 from urllib.parse import urlsplit
 
 from flask import Flask, jsonify, request, send_from_directory
 from waitress import serve
-from werkzeug.middleware.proxy_fix import ProxyFix
 
 import main as engine
 
@@ -164,8 +164,6 @@ class Monitor:
 def create_app(monitor, token, behind_proxy=False):
     app = Flask(__name__, static_folder=None)
     app.config["MAX_CONTENT_LENGTH"] = 16384
-    if behind_proxy:
-        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 
     def authorized(function):
         @wraps(function)
@@ -208,7 +206,7 @@ def create_app(monitor, token, behind_proxy=False):
             return jsonify(error="请求必须为 JSON 对象"), 400
         try:
             if action == "login":
-                if not request.is_secure and request.remote_addr not in ("127.0.0.1", "::1"):
+                if not request.is_secure and (behind_proxy or request.remote_addr not in ("127.0.0.1", "::1")):
                     return jsonify(error="远程登录请使用 HTTPS 地址"), 400
                 account, password = data.get("account"), data.get("password")
                 if not isinstance(account, str) or not isinstance(password, str) or not account.strip() or not password:
@@ -229,6 +227,10 @@ def create_app(monitor, token, behind_proxy=False):
         return jsonify(monitor.snapshot())
 
     return app
+
+
+def proxy_options(peer):
+    return {"trusted_proxy": socket.gethostbyname(peer), "trusted_proxy_headers": {"x-forwarded-proto"}}
 
 
 def main():
@@ -255,7 +257,8 @@ def main():
         monitor = Monitor(root)
         try:
             print(f"面板运行于 http://{args.host}:{args.port}；访问密钥保存在 {token_path}", flush=True)
-            serve(create_app(monitor, token, args.behind_proxy), host=args.host, port=args.port, threads=4)
+            options = proxy_options(os.environ.get("SIGN_PROXY_PEER", "127.0.0.1")) if args.behind_proxy else {}
+            serve(create_app(monitor, token, args.behind_proxy), host=args.host, port=args.port, threads=4, **options)
         finally:
             monitor.close()
 

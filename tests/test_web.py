@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import Mock
@@ -98,11 +99,29 @@ class WebTests(unittest.TestCase):
         self.fake.submit.assert_not_called()
 
     def test_proxy_https_forwarding(self):
-        client = web.create_app(self.monitor, "test-access-key", behind_proxy=True).test_client()
-        response = client.post("/api/login", json={"account": "test", "password": "secret"}, headers={
-            **self.headers, "X-Forwarded-Proto": "https", "X-Forwarded-For": "198.51.100.1",
-        })
-        self.assertEqual(response.status_code, 200)
+        import requests
+        from waitress import create_server
+
+        app = web.create_app(self.monitor, "test-access-key", behind_proxy=True)
+        for peer, scheme, expected in [
+            ("127.0.0.1", "https", "请输入账号和密码"),
+            ("127.0.0.1", "http", "远程登录请使用 HTTPS 地址"),
+            ("192.0.2.1", "https", "远程登录请使用 HTTPS 地址"),
+        ]:
+            with self.subTest(peer=peer, scheme=scheme):
+                server = create_server(app, host="127.0.0.1", port=0, asyncore_loop_timeout=0.05,
+                                       **web.proxy_options(peer))
+                thread = threading.Thread(target=server.run, daemon=True)
+                thread.start()
+                try:
+                    response = requests.post(f"http://127.0.0.1:{server.effective_port}/api/login",
+                                             headers={**self.headers, "X-Forwarded-Proto": scheme},
+                                             json={}, timeout=4)
+                    self.assertEqual(response.json()["error"], expected)
+                finally:
+                    server.close()
+                    server.task_dispatcher.shutdown()
+                    thread.join(timeout=2)
 
 
 if __name__ == "__main__":

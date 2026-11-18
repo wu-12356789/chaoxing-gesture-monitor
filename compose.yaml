@@ -1,6 +1,8 @@
 services:
   app:
     build: .
+    environment:
+      SIGN_PROXY_PEER: ${SIGN_PROXY_PEER:-proxy}
     restart: unless-stopped
     volumes:
       - ./data:/data
