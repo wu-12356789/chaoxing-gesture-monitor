@@ -7,14 +7,24 @@ import logging
 from pathlib import Path
 import re
 import time
+import unicodedata
 
 import requests
 from Crypto.Cipher import DES
 from Crypto.Util.Padding import pad
+from alerts import Mail
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE = "https://mobilelearn.chaoxing.com"
 LOG = logging.getLogger("gesture")
+
+
+def is_university_physics(name):
+    if not isinstance(name, str):
+        return False
+    title = "".join(unicodedata.normalize("NFKC", name).split())
+    # Accept volume, level and semester suffixes while excluding distinct courses such as 大学物理实验.
+    return re.fullmatch(r"大学物理(?:学)?(?:[A-C]|I{1,3}|IV|[上下册一二三四1-4]|\((?:[上下]册?|[一二三四1-4]|[A-C]|I{1,3}|IV)\))*", title) is not None
 
 
 class ProtocolError(Exception):
@@ -175,6 +185,8 @@ class Client:
             content = channel.get("content") or {}
             class_id = content.get("id")
             for course in (content.get("course") or {}).get("data", []):
+                if not is_university_physics(course.get("name")):
+                    continue
                 if class_id is not None and course.get("id") is not None:
                     pair = (str(course["id"]), str(class_id))
                     courses[pair] = {"courseId": pair[0], "classId": pair[1]}
@@ -189,10 +201,16 @@ class Client:
             raise ProtocolError("活动列表结构异常")
         activities = []
         for item in data["activeList"]:
-            if str(item.get("status")) != "1" or str(item.get("otherId")) != "3":
+            if str(item.get("status")) != "1" or item.get("id") is None:
                 continue
-            if item.get("id") is not None:
-                activities.append({**course, "activeId": str(item["id"])})
+            activity_type = str(item.get("activeType", ""))
+            gesture = str(item.get("otherId")) == "3"
+            if activity_type != "2" and (activity_type or not gesture):
+                continue
+            activity = {**course, "activeId": str(item["id"])}
+            if not gesture:
+                activity["manual_only"] = True
+            activities.append(activity)
         return activities
 
     def prepare(self, activity):
@@ -266,6 +284,24 @@ def process_activity(client, state, activity, config, sleep=time.sleep):
         LOG.warning("活动 %s 暂停：%s", activity["activeId"], exc)
 
 
+def handle_activity(client, state, activity, config, mail, sleep=time.sleep):
+    record = state.record(":".join([client.uid, activity["courseId"], activity["classId"], activity["activeId"]]))
+    if record["status"] == "success":
+        return
+    if activity.get("manual_only"):
+        reason = "检测到当前程序无法处理的大学物理签到"
+    else:
+        try:
+            process_activity(client, state, activity, config, sleep=sleep)
+        except (LoginExpired, RetryLater):
+            mail.remind(state, record, activity, "连接或登录异常，无法确认此次签到结果")
+            raise
+        if record["status"] not in ("blocked", "exhausted"):
+            return
+        reason = "此次大学物理签到未能确认成功"
+    mail.remind(state, record, activity, reason)
+
+
 def run(args):
     config_path = ROOT / "config.json"
     config = read_config(config_path)
@@ -279,6 +315,7 @@ def run(args):
     ])
     with single_instance(work / "monitor.lock"):
         state = State(work / "state.json")
+        mail = Mail(ROOT)
         client = Client()
         try:
             account = input("学习通账号：").strip()
@@ -296,9 +333,9 @@ def run(args):
                             continue
                         for activity in client.activities(course):
                             if args.dry_run:
-                                LOG.info("只读检测：课程 %s，手势活动 %s", course["courseId"], activity["activeId"])
+                                LOG.info("只读检测：大学物理课程 %s，签到活动 %s", course["courseId"], activity["activeId"])
                             else:
-                                process_activity(client, state, activity, config)
+                                handle_activity(client, state, activity, config, mail)
                     LOG.info("本轮检测结束，返回 %d 门课程", len(courses))
                 except RetryLater as exc:
                     LOG.warning("%s", exc)

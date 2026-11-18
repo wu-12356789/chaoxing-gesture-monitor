@@ -119,9 +119,10 @@ class WebTests(unittest.TestCase):
                                              json={}, timeout=4)
                     self.assertEqual(response.json()["error"], expected)
                 finally:
-                    server.close()
                     server.task_dispatcher.shutdown()
+                    server.trigger.pull_trigger(lambda: server.asyncore.close_all(server._map))
                     thread.join(timeout=2)
+                    self.assertFalse(thread.is_alive())
 
 
 if __name__ == "__main__":

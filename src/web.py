@@ -40,6 +40,7 @@ class EventLog(logging.Handler):
 class Monitor:
     def __init__(self, root, client_factory=engine.Client):
         self.root = root
+        self.mail = engine.Mail(root)
         self.client_factory = client_factory
         self.lock = threading.RLock()
         self.stop_event = threading.Event()
@@ -115,14 +116,19 @@ class Monitor:
                         self.status = "监测中"
                     delay = config["poll_seconds"]
                     try:
-                        for course in self.client.courses():
+                        courses = self.client.courses()
+                        matched = 0
+                        for course in courses:
                             self.wait(0)
                             if config["course_ids"] and course["courseId"] not in config["course_ids"]:
                                 continue
+                            matched += 1
                             for activity in self.client.activities(course):
                                 self.wait(0)
-                                engine.process_activity(self.client, state, activity, config, sleep=self.wait)
+                                engine.handle_activity(self.client, state, activity, config, self.mail, sleep=self.wait)
                         with self.lock:
+                            if not matched:
+                                self.status = "本轮未找到匹配的大学物理课程"
                             self.last_scan = datetime.now().astimezone().isoformat(timespec="seconds")
                     except engine.RetryLater as exc:
                         engine.LOG.warning("%s", exc)
@@ -150,7 +156,8 @@ class Monitor:
     def snapshot(self):
         with self.lock:
             return {"status": self.status, "running": self.active(), "logged_in": self.client is not None,
-                    "last_scan": self.last_scan, "config": self.config, "events": self.events.snapshot()}
+                    "last_scan": self.last_scan, "config": self.config, "events": self.events.snapshot(),
+                    "mail_configured": self.mail.path.exists(), "mail_recipient": self.mail.recipient()}
 
     def close(self):
         self.stop()
@@ -212,6 +219,10 @@ def create_app(monitor, token, behind_proxy=False):
                 if not isinstance(account, str) or not isinstance(password, str) or not account.strip() or not password:
                     raise ValueError("请输入账号和密码")
                 monitor.login(account.strip(), password)
+            elif action == "mail":
+                if not request.is_secure and (behind_proxy or request.remote_addr not in ("127.0.0.1", "::1")):
+                    return jsonify(error="远程配置邮件请使用 HTTPS 地址"), 400
+                monitor.mail.configure(data.get("sender"), data.get("recipient"), data.get("password"))
             elif action == "config":
                 monitor.save_config(data)
             elif action == "start":

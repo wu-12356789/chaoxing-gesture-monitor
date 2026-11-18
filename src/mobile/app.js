@@ -65,9 +65,12 @@ function render(state) {
   $('login-card').hidden = state.logged_in;
   $('last-scan').textContent = state.last_scan ? '最近检测 ' + new Date(state.last_scan).toLocaleTimeString('zh-CN') : '尚未完成检测';
   $('connection').textContent = '已连接服务器';
+  $('mail-status').textContent = state.mail_configured ? '已配置，提醒将发往 ' + state.mail_recipient : '尚未启用，请先设置发信邮箱并发送测试邮件。';
   const changed = !config || JSON.stringify(config.gestures) !== JSON.stringify(state.config.gestures);
   if (changed) drawPresets(state.config.gestures);
   if (!config) {
+    $('mail-to').value = state.mail_recipient || '';
+    if (/@qq\.com$/i.test(state.mail_recipient || '')) $('mail-from').value = state.mail_recipient;
     $('gestures').value = state.config.gestures.join('\n');
     $('interval').value = state.config.poll_seconds;
   }
@@ -141,6 +144,12 @@ $('config-form').addEventListener('submit', event => {
   action('config', { ...config, gestures: $('gestures').value.split(/[\s,，]+/).filter(Boolean), poll_seconds: Number($('interval').value) });
 });
 $('start').addEventListener('click', () => action('start', {}));
+$('mail-form').addEventListener('submit', event => {
+  event.preventDefault();
+  const password = $('mail-password').value;
+  $('mail-password').value = '';
+  action('mail', { sender: $('mail-from').value.trim(), recipient: $('mail-to').value.trim(), password });
+});
 $('stop').addEventListener('click', () => action('stop', {}));
 $('disconnect').addEventListener('click', () => { disconnect(); notice('已断开面板连接，服务器上的监测状态保持。'); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });

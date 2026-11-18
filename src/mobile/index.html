@@ -23,7 +23,7 @@
         <div class="status-line"><span id="dot" class="dot"></span><strong id="status">正在连接</strong></div>
         <p id="last-scan" class="muted">尚未检测</p>
         <div class="actions"><button id="start" type="button">开始监测</button><button id="stop" type="button" class="secondary">停止</button></div>
-        <p class="hint">关闭网页或锁屏后，服务器继续监测。</p>
+        <p class="hint">仅监测大学物理。出现需要手动处理的签到时，通过邮件提醒。</p>
       </section>
       <section class="card" id="login-card">
         <h2>登录学习通</h2>
@@ -43,6 +43,17 @@
             <p class="hint">九宫格从上至下为 123 / 456 / 789。</p>
             <label for="interval">检测间隔（秒）</label><input id="interval" type="number" min="1" max="86400" required>
             <button type="submit" class="secondary">保存设置</button>
+          </form>
+        </details>
+      </section>
+      <section class="card">
+        <h2>邮件提醒</h2><p id="mail-status" class="muted"></p>
+        <details><summary>设置发信邮箱</summary>
+          <form id="mail-form">
+            <label for="mail-to">收件邮箱</label><input id="mail-to" type="email" required>
+            <label for="mail-from">发信 QQ 邮箱</label><input id="mail-from" type="email" required>
+            <label for="mail-password">QQ 邮箱 SMTP 授权码</label><input id="mail-password" type="password" autocomplete="off" required>
+            <button type="submit" class="secondary">发送测试邮件并保存</button>
           </form>
         </details>
       </section>
