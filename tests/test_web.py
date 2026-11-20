@@ -60,6 +60,19 @@ class WebTests(unittest.TestCase):
     def test_start_requires_login(self):
         self.assertEqual(self.post("start").status_code, 400)
 
+    def test_read_check_surfaces_private_reason_without_processing_attendance(self):
+        self.assertEqual(self.post("read-check").status_code, 400)
+        self.monitor.login("user", "password")
+        self.fake.activities.side_effect = [web.engine.ActivityListUnavailable("失败", "活动尚未开放"), []]
+        result = self.post("read-check").get_json()
+        self.assertEqual(result["read_detail"], "活动尚未开放")
+        self.assertFalse(result["running"])
+        self.assertIsNone(result["last_scan"])
+        self.assertEqual(self.post("read-check").get_json()["read_detail"], "")
+        self.fake.prepare.assert_not_called()
+        self.fake.check.assert_not_called()
+        self.fake.submit.assert_not_called()
+
     def test_unreadable_scan_alerts_once_then_recovers_read_only(self):
         self.monitor.login("user", "test")
         activity = self.fake.activities.return_value[0]

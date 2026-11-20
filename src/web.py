@@ -48,6 +48,7 @@ class Monitor:
         self.client = None
         self.status = "未登录"
         self.last_scan = None
+        self.read_detail = ""
         self.config = engine.read_config(root / "config.json")
         self.events = EventLog()
         engine.LOG.addHandler(self.events)
@@ -71,6 +72,7 @@ class Monitor:
             self.client = client
             self.status = "已登录，等待开始"
             self.last_scan = None
+            self.read_detail = ""
             with self.events.lock:
                 self.events.events.clear()
             engine.LOG.info("账号登录成功")
@@ -84,6 +86,25 @@ class Monitor:
             temporary.replace(path)
             self.config = config
         return config
+
+    def check_read(self):
+        with self.lock:
+            if not self.client:
+                raise ValueError("请先登录学习通")
+            if self.active():
+                raise ValueError("正在监测，请查看本轮读取结果")
+            self.read_detail = ""
+            selected = self.config["course_ids"]
+            courses = [course for course in self.client.courses() if not selected or course["courseId"] in selected]
+            try:
+                for course in courses:
+                    self.client.activities(course)
+            except engine.ActivityListUnavailable as exc:
+                self.read_detail = exc.panel_detail
+                self.status = f"只读检查失败：{exc}"
+                return
+            self.status = "只读检查完成，大学物理活动列表可读取" if courses else "本轮未找到匹配的大学物理课程"
+            self.last_scan = datetime.now().astimezone().isoformat(timespec="seconds")
 
     def start(self):
         with self.lock:
@@ -146,10 +167,12 @@ class Monitor:
                             if not matched:
                                 self.status = "本轮未找到匹配的大学物理课程"
                             self.last_scan = datetime.now().astimezone().isoformat(timespec="seconds")
+                            self.read_detail = ""
                     except engine.ActivityListUnavailable as exc:
                         delay = max(delay, 300)
                         with self.lock:
                             self.status = f"本轮读取失败，{delay:g} 秒后只读复查"
+                            self.read_detail = exc.panel_detail
                         engine.LOG.warning("%s：%s", self.status, exc)
                         incidents = state.data.setdefault("unreadable_courses", {})
                         if not incidents.get(self.client.uid):
@@ -187,7 +210,8 @@ class Monitor:
 
     def snapshot(self):
         with self.lock:
-            return {"status": self.status, "running": self.active(), "logged_in": self.client is not None,
+            return {"status": self.status, "read_detail": self.read_detail if self.client else "",
+                    "running": self.active(), "logged_in": self.client is not None,
                     "last_scan": self.last_scan, "config": self.config, "events": self.events.snapshot(),
                     "mail_configured": self.mail.path.exists(), "mail_recipient": self.mail.recipient()}
 
@@ -257,6 +281,8 @@ def create_app(monitor, token, behind_proxy=False):
                 monitor.mail.configure(data.get("sender"), data.get("recipient"), data.get("password"))
             elif action == "config":
                 monitor.save_config(data)
+            elif action == "read-check":
+                monitor.check_read()
             elif action == "start":
                 monitor.start()
             elif action == "stop":

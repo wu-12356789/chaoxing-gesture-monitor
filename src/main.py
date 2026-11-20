@@ -34,6 +34,24 @@ class ProtocolError(Exception):
 class ActivityListUnavailable(ProtocolError):
     """The scan could not establish whether there are attendance activities."""
 
+    def __init__(self, summary, panel_detail=""):
+        super().__init__(summary)
+        self.panel_detail = panel_detail
+
+
+def panel_error_detail(result):
+    for key in ("errorMsg", "message", "msg", "error", "errorMessage"):
+        value = result.get(key)
+        if not isinstance(value, str) or not value.strip():
+            continue
+        # Keep only prose from a single message field; never display headers, markup or structured values.
+        if len(value) > 512 or re.search(r"[<>{}\r\n]|(?:cookie|token|password|authorization|bearer|密钥|密码)\s*[:=： ]", value, re.I):
+            continue
+        value = re.sub(r"https?://\S+|\S+@\S+|[A-Za-z0-9_./+=%-]{12,}|\d{3,}", "…", value.strip())
+        value = "".join(c for c in value if c.isprintable())
+        if value.strip("… "):
+            return value[:160]
+    return ""
 
 def activity_failure_summary(result):
     # Only emit predefined labels and short numeric error codes. Raw responses can contain account data.
@@ -221,7 +239,8 @@ class Client:
         data = result.get("data")
         flags = [str(result[k]).lower() for k in ("result", "success") if k in result]
         if any(flag in ("0", "false") for flag in flags):
-            raise ActivityListUnavailable(f"学习通返回失败状态：{activity_failure_summary(result)}，无法判断是否有签到")
+            raise ActivityListUnavailable(f"学习通返回失败状态：{activity_failure_summary(result)}，无法判断是否有签到",
+                                          panel_error_detail(result))
         rows = data.get("activeList") if isinstance(data, dict) else None
         manual_list = not isinstance(rows, list)
         if manual_list:

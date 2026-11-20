@@ -58,10 +58,11 @@ function drawPresets(gestures) {
 function render(state) {
   $('pairing').hidden = true;
   $('dashboard').hidden = false;
-  $('status').textContent = state.status;
+  $('status').textContent = state.read_detail ? state.status + '。学习通提示：' + state.read_detail : state.status;
   $('dot').classList.toggle('running', state.running);
   $('start').disabled = state.running || !state.logged_in;
   $('stop').disabled = !state.running;
+  $('read-check').disabled = state.running || !state.logged_in;
   $('login-card').hidden = state.logged_in;
   $('last-scan').textContent = state.last_scan ? '最近检测 ' + new Date(state.last_scan).toLocaleTimeString('zh-CN') : '尚未完成检测';
   $('connection').textContent = '已连接服务器';
@@ -144,6 +145,7 @@ $('config-form').addEventListener('submit', event => {
   action('config', { ...config, gestures: $('gestures').value.split(/[\s,，]+/).filter(Boolean), poll_seconds: Number($('interval').value) });
 });
 $('start').addEventListener('click', () => action('start', {}));
+$('read-check').addEventListener('click', () => action('read-check', {}));
 $('mail-form').addEventListener('submit', event => {
   event.preventDefault();
   const password = $('mail-password').value;
