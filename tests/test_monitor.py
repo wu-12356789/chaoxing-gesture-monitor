@@ -120,6 +120,16 @@ class AdapterTests(unittest.TestCase):
             with self.assertRaises(main.ActivityListUnavailable):
                 self.client.activities({})
 
+    def test_activity_failure_diagnostic_redacts_raw_messages_and_unknown_codes(self):
+        self.client.json = Mock(return_value={"result": False, "errorMsg": "请先登录 user@example.com", "code": 401})
+        with self.assertRaises(main.ActivityListUnavailable) as caught:
+            self.client.activities({})
+        self.assertIn("需要登录（业务码 401）", str(caught.exception))
+        self.assertNotIn("user@example.com", str(caught.exception))
+        self.assertEqual(main.activity_failure_summary({"message": "private", "errorCode": "token-123"}),
+                         "服务端给出的原因未能识别")
+        self.assertEqual(main.activity_failure_summary({}), "服务端未提供可识别的原因")
+
     def test_all_active_gestures_in_mixed_activity_list(self):
         self.client.json = Mock(return_value={"data": {"activeList": [
             {"id": 1, "status": 1, "otherId": 0},

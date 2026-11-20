@@ -35,6 +35,24 @@ class ActivityListUnavailable(ProtocolError):
     """The scan could not establish whether there are attendance activities."""
 
 
+def activity_failure_summary(result):
+    # Only emit predefined labels and short numeric error codes. Raw responses can contain account data.
+    messages = " ".join(result[k] for k in ("errorMsg", "message", "msg", "error", "errorMessage")
+                        if isinstance(result.get(k), str)).lower()
+    groups = (
+        ("服务端提示需要登录", ("未登录", "请先登录", "重新登录", "登录失效", "not logged in")),
+        ("服务端提示需要身份验证", ("验证码", "身份验证", "安全验证", "captcha")),
+        ("服务端提示访问受限", ("无权限", "没有权限", "无权访问", "拒绝访问", "forbidden")),
+        ("服务端提示请求过于频繁", ("频繁", "too many requests")),
+        ("服务端提示课程或班级不可用", ("课程不存在", "班级不存在", "未加入班级")),
+    )
+    category = next((label for label, terms in groups if any(t in messages for t in terms)),
+                    "服务端给出的原因未能识别" if messages.strip() else "服务端未提供可识别的原因")
+    code = next((str(result[k]) for k in ("errorCode", "code", "statusCode")
+                 if type(result.get(k)) in (str, int) and re.fullmatch(r"-?[0-9]{1,5}", str(result[k]))), "")
+    return f"{category}（业务码 {code}）" if code else category
+
+
 class LoginExpired(ProtocolError):
     pass
 
@@ -203,7 +221,7 @@ class Client:
         data = result.get("data")
         flags = [str(result[k]).lower() for k in ("result", "success") if k in result]
         if any(flag in ("0", "false") for flag in flags):
-            raise ActivityListUnavailable("学习通返回失败状态，无法判断是否有签到")
+            raise ActivityListUnavailable(f"学习通返回失败状态：{activity_failure_summary(result)}，无法判断是否有签到")
         rows = data.get("activeList") if isinstance(data, dict) else None
         manual_list = not isinstance(rows, list)
         if manual_list:
