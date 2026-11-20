@@ -31,6 +31,10 @@ class ProtocolError(Exception):
     pass
 
 
+class ActivityListUnavailable(ProtocolError):
+    """The scan could not establish whether there are attendance activities."""
+
+
 class LoginExpired(ProtocolError):
     pass
 
@@ -197,10 +201,21 @@ class Client:
             **course, "fid": 0, "_": int(time.time() * 1000),
         })
         data = result.get("data")
-        if not isinstance(data, dict) or not isinstance(data.get("activeList"), list):
-            raise ProtocolError("活动列表结构异常")
+        flags = [str(result[k]).lower() for k in ("result", "success") if k in result]
+        if any(flag in ("0", "false") for flag in flags):
+            raise ActivityListUnavailable("学习通返回失败状态，无法判断是否有签到")
+        rows = data.get("activeList") if isinstance(data, dict) else None
+        manual_list = not isinstance(rows, list)
+        if manual_list:
+            rows = data if isinstance(data, list) else result.get("activeList")
+            if isinstance(data, list) and not data and not any(flag in ("1", "true") for flag in flags):
+                raise ActivityListUnavailable("学习通返回空数据，但未确认活动查询成功")
+        if not isinstance(rows, list):
+            raise ActivityListUnavailable(f"学习通未返回可识别的活动列表（data 类型 {type(data).__name__}）")
+        if any(not isinstance(item, dict) or "id" not in item or "status" not in item for item in rows):
+            raise ActivityListUnavailable("学习通活动条目缺少可识别的编号或状态")
         activities = []
-        for item in data["activeList"]:
+        for item in rows:
             if str(item.get("status")) != "1" or item.get("id") is None:
                 continue
             activity_type = str(item.get("activeType", ""))
@@ -208,7 +223,7 @@ class Client:
             if activity_type != "2" and (activity_type or not gesture):
                 continue
             activity = {**course, "activeId": str(item["id"])}
-            if not gesture:
+            if manual_list or not gesture:
                 activity["manual_only"] = True
             activities.append(activity)
         return activities

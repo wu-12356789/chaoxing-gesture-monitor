@@ -107,29 +107,61 @@ class Monitor:
             raise MonitorStopped()
 
     def run(self):
+        manual_only = False
         try:
             with engine.single_instance(self.root / "work" / "monitor.lock"):
                 state = engine.State(self.root / "work" / "state.json")
                 while not self.stop_event.is_set():
                     with self.lock:
                         config = dict(self.config)
-                        self.status = "监测中"
+                        self.status = "只读监测中，签到需手动完成" if manual_only else "监测中"
                     delay = config["poll_seconds"]
                     try:
                         courses = self.client.courses()
                         matched = 0
+                        read_error = None
                         for course in courses:
                             self.wait(0)
                             if config["course_ids"] and course["courseId"] not in config["course_ids"]:
                                 continue
                             matched += 1
-                            for activity in self.client.activities(course):
+                            try:
+                                activities = self.client.activities(course)
+                            except engine.ActivityListUnavailable as exc:
+                                manual_only = True
+                                read_error = exc
+                                continue
+                            for activity in activities:
                                 self.wait(0)
+                                if manual_only:
+                                    activity = dict(activity, manual_only=True)
                                 engine.handle_activity(self.client, state, activity, config, self.mail, sleep=self.wait)
+                        if read_error is not None:
+                            raise read_error
+                        incidents = state.data.get("unreadable_courses", {})
+                        if matched and self.client.uid in incidents:
+                            del incidents[self.client.uid]
+                            state.save()
                         with self.lock:
                             if not matched:
                                 self.status = "本轮未找到匹配的大学物理课程"
                             self.last_scan = datetime.now().astimezone().isoformat(timespec="seconds")
+                    except engine.ActivityListUnavailable as exc:
+                        delay = max(delay, 300)
+                        with self.lock:
+                            self.status = f"本轮读取失败，{delay:g} 秒后只读复查"
+                        engine.LOG.warning("%s：%s", self.status, exc)
+                        incidents = state.data.setdefault("unreadable_courses", {})
+                        if not incidents.get(self.client.uid):
+                            try:
+                                self.mail.send(self.mail.settings(), "大学物理监测暂时无法读取活动",
+                                               f"{exc}。请打开学习通查看大学物理课程是否有签到。本轮未完成检测。")
+                            except (ValueError, OSError):
+                                engine.LOG.warning("监测故障邮件未发出，下次读取仍失败时重试")
+                            else:
+                                incidents[self.client.uid] = True
+                                state.save()
+                                engine.LOG.info("监测故障提醒已交给邮件服务器")
                     except engine.RetryLater as exc:
                         engine.LOG.warning("%s", exc)
                         delay = max(delay, exc.delay)

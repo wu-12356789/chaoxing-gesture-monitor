@@ -60,6 +60,33 @@ class WebTests(unittest.TestCase):
     def test_start_requires_login(self):
         self.assertEqual(self.post("start").status_code, 400)
 
+    def test_unreadable_scan_alerts_once_then_recovers_read_only(self):
+        self.monitor.login("user", "test")
+        activity = self.fake.activities.return_value[0]
+        self.fake.activities.side_effect = [
+            web.engine.ActivityListUnavailable("列表不可读"),
+            web.engine.ActivityListUnavailable("列表不可读"), [activity],
+        ]
+        self.monitor.mail = Mock()
+        self.monitor.mail.settings.return_value = {}
+        scans = []
+
+        def wait(seconds):
+            if not seconds:
+                return
+            scans.append((seconds, self.monitor.last_scan))
+            if len(scans) == 3:
+                raise web.MonitorStopped()
+
+        self.monitor.wait = wait
+        self.monitor.run()
+        self.assertEqual(scans[:2], [(300, None), (300, None)])
+        self.assertIsNotNone(scans[2][1])
+        self.monitor.mail.send.assert_called_once()
+        self.monitor.mail.remind.assert_called_once()
+        self.fake.prepare.assert_not_called()
+        self.fake.submit.assert_not_called()
+
     def test_config_saved_and_invalid_config_preserves_previous(self):
         config = dict(self.monitor.config, poll_seconds=45)
         self.assertEqual(self.post("config", config).status_code, 200)

@@ -108,6 +108,18 @@ class AdapterTests(unittest.TestCase):
         self.client = main.Client()
         self.addCleanup(self.client.session.close)
 
+    def test_alternate_activity_shapes_are_manual_only(self):
+        rows = [dict(id=1, status=1, activeType=2, otherId=3)]
+        for payload in ({"data": rows}, {"activeList": rows}):
+            self.client.json = Mock(return_value=payload)
+            self.assertEqual(self.client.activities({}), [{"activeId": "1", "manual_only": True}])
+
+    def test_unreadable_activity_list_cannot_look_like_an_empty_scan(self):
+        for payload in ({"data": None}, {"result": False, "activeList": []}, {"data": [7]}):
+            self.client.json = Mock(return_value=payload)
+            with self.assertRaises(main.ActivityListUnavailable):
+                self.client.activities({})
+
     def test_all_active_gestures_in_mixed_activity_list(self):
         self.client.json = Mock(return_value={"data": {"activeList": [
             {"id": 1, "status": 1, "otherId": 0},
